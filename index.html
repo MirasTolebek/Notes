@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Мобильные Заметки в Google Таблицу</title>
+    <!-- Загрузка Tailwind CSS для стилизации -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Установка шрифта Inter и адаптация к мобильным устройствам */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+
+    <!-- Главный контейнер приложения, адаптированный для мобильных устройств -->
+    <div class="w-full max-w-md bg-white p-6 md:p-8 rounded-xl shadow-2xl border border-gray-100">
+
+        <h1 class="text-3xl font-extrabold text-gray-800 mb-6 text-center">
+            Быстрая Заметка
+        </h1>
+
+        <p class="text-sm text-gray-500 mb-6 text-center">
+            Сохраните вашу запись прямо в Google Таблицу.
+        </p>
+
+        <!-- Поле для ввода заметки -->
+        <textarea
+            id="noteInput"
+            rows="5"
+            placeholder="Введите вашу заметку здесь..."
+            class="w-full p-4 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150 ease-in-out resize-none mb-6 text-gray-700"
+            aria-label="Поле для ввода заметки"
+        ></textarea>
+
+        <!-- Кнопка сохранения -->
+        <button
+            id="saveButton"
+            onclick="saveNote()"
+            class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg shadow-lg transform transition duration-150 ease-in-out hover:scale-[1.01] focus:outline-none focus:ring-4 focus:ring-blue-500 focus:ring-opacity-50"
+        >
+            Сохранить Заметку
+        </button>
+
+        <!-- Область для сообщений (успех/ошибка/загрузка) -->
+        <div id="messageArea" class="mt-4 text-center min-h-[20px]">
+            <!-- Здесь будут отображаться сообщения -->
+        </div>
+
+    </div>
+
+    <script>
+        // *** АДРЕС ВАШЕГО GOOGLE APPS SCRIPT ***
+        // Этот URL был предоставлен пользователем и настроен для отправки данных.
+        const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzj8vk50REF5meWg9SkEA3TU-ct4kBWjreEphhyUJQQmVcMjuFOBuyWnrwoiDTRbRBJfA/exec';
+        
+        const noteInput = document.getElementById('noteInput');
+        const saveButton = document.getElementById('saveButton');
+        const messageArea = document.getElementById('messageArea');
+        const RETRY_ATTEMPTS = 3;
+        const BASE_DELAY_MS = 1000;
+
+        /**
+         * Асинхронно отправляет данные заметки в Google Таблицу через Apps Script.
+         * Используется механизм экспоненциальной задержки при ошибках сети.
+         */
+        async function saveNote() {
+            const noteText = noteInput.value.trim();
+
+            if (!noteText) {
+                showMessage('Пожалуйста, введите текст заметки.', 'text-yellow-600');
+                return;
+            }
+
+            // Блокировка UI
+            saveButton.disabled = true;
+            saveButton.textContent = 'Сохранение...';
+            showMessage('Отправка данных...', 'text-blue-500');
+
+            // Подготовка данных в формате, который легко читается Apps Script (URL-encoded)
+            const data = {
+                id: crypto.randomUUID(), // Уникальный ИД
+                // Формат даты, как вы просили (русский, полный формат)
+                date: new Date().toLocaleString('ru-RU', { 
+                    year: 'numeric', month: '2-digit', day: '2-digit', 
+                    hour: '2-digit', minute: '2-digit', second: '2-digit' 
+                }),
+                note: noteText,
+            };
+
+            const formData = new URLSearchParams();
+            formData.append('id', data.id);
+            formData.append('date', data.date);
+            formData.append('note', data.note);
+
+            // Попытка отправки с экспоненциальной задержкой
+            for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
+                try {
+                    const response = await fetch(SCRIPT_URL, {
+                        method: 'POST',
+                        mode: 'no-cors', // Важно для обхода CORS ограничений при работе с Apps Script
+                        headers: {
+                            // Apps Script лучше всего работает с URL-encoded данными
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                        },
+                        body: formData.toString()
+                    });
+
+                    // Поскольку используется 'no-cors', мы полагаемся на отсутствие сетевой ошибки.
+
+                    showMessage('✅ Заметка успешно сохранена!', 'text-green-600');
+                    noteInput.value = ''; // Очистка поля
+                    break; // Успех, выход из цикла
+
+                } catch (error) {
+                    console.error('Ошибка при сохранении заметки (попытка ' + (attempt + 1) + '):', error);
+                    if (attempt < RETRY_ATTEMPTS - 1) {
+                        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+                        showMessage(`Ошибка. Повторная попытка через ${delay / 1000}с...`, 'text-red-500');
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                    } else {
+                        showMessage('❌ Критическая ошибка! Не удалось сохранить заметку после ' + RETRY_ATTEMPTS + ' попыток.', 'text-red-700');
+                    }
+                }
+            }
+            
+            // Разблокировка UI
+            saveButton.disabled = false;
+            saveButton.textContent = 'Сохранить Заметку';
+        }
+
+        /**
+         * Отображает сообщение пользователю.
+         */
+        function showMessage(message, className) {
+            messageArea.innerHTML = `<p class="${className} font-medium transition duration-300">${message}</p>`;
+        }
+
+    </script>
+</body>
+</html>
